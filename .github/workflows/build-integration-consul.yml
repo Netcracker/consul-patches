@@ -72,7 +72,7 @@ jobs:
           rm -rf ./consul-patches
 
           echo "REPOSITORY_OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-          echo "FULL_BASE_IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ env.HASHICORP_CONSUL_TAG }}-patched" >> "$GITHUB_ENV"
+          echo "FULL_BASE_IMAGE_NAME=$(ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ env.HASHICORP_CONSUL_TAG }}-patched" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Detect Go version
         id: go
