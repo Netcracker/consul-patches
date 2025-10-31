@@ -1,0 +1,253 @@
+name: Build Integration Consul
+run-name: "Consul ${{ inputs. hashicorp-consul-tag }} -> Release ${{ inputs.tag }}  by @${{ github.actor }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      hashicorp-consul-tag:
+        description: "Git tag of hashicorp/consul to release (e.g. v1.21.3)"
+        required: true
+        default: "v1.21.3"
+      tag:
+        description: "Tag for release and Docker images (e.g. v1.21.3)"
+        required: true
+        default: "v1.21.3-patched"
+      debug:
+        description: "Enable debug output"
+        type: boolean
+        required: false
+        default: false
+      # build_ubi:
+      #   description: "Also build UBI variant (target=ubi)"
+      #   type: boolean
+      #   required: false
+      #   default: false
+
+permissions:
+  contents: write # create GitHub Release & upload assets
+  packages: write # push images to GHCR
+
+env:
+  BIN_NAME: consul-${{ inputs.tag }}
+  HASHICORP_CONSUL_TAG: ${{ inputs.hashicorp-consul-tag }}
+  TAG: ${{ inputs.tag }}
+  NODE_VERSION: "18"
+  FULL_BASE_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ inputs.hashicorp-consul-tag }}-patched
+  EVENT_TARGET_REPO: "qubership-consul"
+  CONSUL_PATCHED_TAG: ${{ inputs.tag }}-patched
+
+jobs:
+  build:
+    name: Build UI + binaries (amd64/arm64) and pack artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout hashicorp/consul source
+        uses: actions/checkout@v5
+        with:
+          repository: hashicorp/consul
+          ref: ${{ env.HASHICORP_CONSUL_TAG }}
+
+      - name: Checkout consul-patches
+        uses: actions/checkout@v5
+        with:
+          path: consul-patches
+
+      - name: Debug listing
+        if: ${{ inputs.debug == 'true' }}
+        run: |
+          ls -la .
+          ls -la consul-patches
+          ls -la ui
+          cat ui/package.json
+
+      - name: Apply patches
+        run: |
+          cd ${GITHUB_WORKSPACE}
+          for p in ./consul-patches/patches/${{ env.HASHICORP_CONSUL_TAG }}/*.patch; do
+            echo "Applying $p…"
+            git apply -p1 --ignore-space-change --ignore-whitespace "$p"
+          done
+          rm -rf ./consul-patches
+
+      - name: Detect Go version
+        id: go
+        run: |
+          version=$(cat .go-version 2>/dev/null || echo 1.21.6)
+          echo "Detected Go version: $version"
+          echo "GO_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+
+      - name: Cache Go modules/build
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            $(go env GOPATH)/pkg/mod
+          key: ${{ runner.os }}-go-${{ steps.go.outputs.version }}-${{ hashFiles('consul/**/go.sum') }}
+
+      - name: Build binaries (linux/amd64 + linux/arm64) into dist/
+        shell: bash
+        run: |
+          set -eux
+          export CGO_ENABLED=0
+          CONSUL_VERSION=${{ env.HASHICORP_CONSUL_TAG }}
+          if [ -x build-support/scripts/build-date.sh ]; then
+            CONSUL_DATE=$(./build-support/scripts/build-date.sh)
+          else
+            CONSUL_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          fi
+          GIT_COMMIT=$(git rev-parse --short=8 HEAD)
+          LDFLAGS="-X github.com/hashicorp/consul/version.GitCommit=${GIT_COMMIT} \
+                   -X github.com/hashicorp/consul/version.GitDescribe=${CONSUL_VERSION} \
+                   -X github.com/hashicorp/consul/version.BuildDate=${CONSUL_DATE}"
+          mkdir -p dist/linux/amd64
+          GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -trimpath -buildvcs=false -o dist/linux/amd64/${{ env.BIN_NAME }} ./main.go
+          mkdir -p dist/linux/arm64
+          GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -trimpath -buildvcs=false -o dist/linux/arm64/${{ env.BIN_NAME }} ./main.go
+          chmod +x dist/linux/*/${{ env.BIN_NAME }}
+
+      - name: Detect Node version for UI
+        id: node
+        shell: bash
+        run: |
+          set -euo pipefail
+          # priority: .nvmrc → .node-version → package.json engines.node → fallback=18
+          if [ -f ui/.nvmrc ]; then
+            ver=$(tr -d ' \t\r\n' < ui/.nvmrc)
+          elif [ -f ui/.node-version ]; then
+            ver=$(tr -d ' \t\r\n' < ui/.node-version)
+          elif [ -f ui/package.json ]; then
+            engines_line=$(grep -A3 '"engines"' ui/package.json || true)
+            node_req=$(echo "$engines_line" | grep -E '"node"\s*:' | sed -E 's/.*"node"\s*:\s*"([^"]+)".*/\1/')
+            major=$(echo "$node_req" | sed -E 's/[^0-9.]+/ /g' | awk -F. '{print $1}' | awk '{print $1}')
+            if [ -n "${major:-}" ]; then ver="$major"; else ver="18"; fi
+          else
+            ver="18"
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "NODE_VERSION=$ver" >> "$GITHUB_ENV"
+          echo "Detected Node.js version: $ver"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build UI
+        shell: bash
+        run: |
+          set -eux
+          CONSUL_VERSION=${{ env.HASHICORP_CONSUL_TAG }}
+          if [ -x build-support/scripts/build-date.sh ]; then
+            CONSUL_DATE=$(./build-support/scripts/build-date.sh)
+          else
+            CONSUL_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          fi
+          GIT_COMMIT=$(git rev-parse --short=8 HEAD)
+          echo "UI for $CONSUL_VERSION ($GIT_COMMIT @ $CONSUL_DATE)"
+          cd ui
+          yarn install --frozen-lockfile
+          make
+          cd ..
+          rm -rf agent/uiserver/dist
+          mv ui/packages/consul-ui/dist agent/uiserver/
+
+      - name: Prepare binaries for Docker build
+        run: |
+          set -eux
+          mkdir -p dist/linux/amd64 dist/linux/arm64
+          cp dist/linux/amd64/${{ env.BIN_NAME }} dist/linux/amd64/consul
+          cp dist/linux/arm64/${{ env.BIN_NAME }} dist/linux/arm64/consul
+          ls -la dist/linux/amd64/
+          ls -la dist/linux/arm64/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build base Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: "."
+          file: Dockerfile
+          target: default
+          platforms: linux/amd64,linux/arm64
+          tags: ${{env.FULL_BASE_IMAGE_NAME }}
+          build-args: |
+            BIN_NAME=consul
+            PRODUCT_VERSION=${{ env.HASHICORP_CONSUL_TAG }}
+            PRODUCT_REVISION=${{ github.sha }}
+          push: true
+          provenance: false
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-binaries
+          path: |
+            dist/linux/amd64/${{ env.BIN_NAME }}
+            dist/linux/arm64/${{ env.BIN_NAME }}
+          if-no-files-found: error
+
+      - name: Verify Consul container (server + UI)
+        run: |
+          set -eux
+          IMAGE=${{ env.FULL_BASE_IMAGE_NAME }}
+          echo "Starting Consul container from image: $IMAGE"
+          docker run -d --name consul-test -p 8500:8500 "$IMAGE" agent -dev -client=0.0.0.0
+
+          echo "Waiting for Consul to start..."
+          for i in $(seq 1 20); do
+            if curl -fs http://localhost:8500/v1/status/leader >/dev/null 2>&1; then
+              echo "✅ Consul API is responding"
+              break
+            fi
+            echo "Consul not ready yet ($i)..."
+            sleep 2
+          done
+
+          curl -f http://localhost:8500/v1/status/leader
+          echo "Checking UI endpoint..."
+          curl -fsI http://localhost:8500/ui/ | grep -i "content-type: text/html"
+          echo "✅ Consul UI endpoint is responding with HTML"
+
+          docker rm -f consul-test
+
+      - name: Print Consul container logs
+        if: ${{ inputs.debug == 'true' }} || failure()
+        run: |
+          echo "=== Consul container logs ==="
+          docker logs consul-test || true
+          echo "=== Container filesystem ==="
+          docker exec consul-test ls -l /bin || true
+
+      - name: Trigger custom event
+        uses: netcracker/qubership-workflow-hub/actions/custom-event@v2.0.1
+        with:
+          event-type: "integration-consul-built"
+          client-payload: |
+            {
+               "base_image": "${{ env.FULL_BASE_IMAGE_NAME}}",
+               "tag": "${{ env.TAG }}",
+               "patchedTag": "${{ env.CONSUL_PATCHED_TAG }}",
+               "repo": "${{ github.repository }}",
+               "owner": "${{ github.repository_owner }}"
+            }
+          owner: "${{ github.repository_owner }}"
+          repo: "${{ env.EVENT_TARGET_REPO }}"
+          github-token: ${{ secrets.GH_ACCESS_TOKEN }}
