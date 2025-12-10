@@ -15,7 +15,7 @@ on:
       event-target-repo:
         description: "Repository to send the custom event to"
         required: false
-        default: "qubership-rabbitmq"
+        default: "qubership-consul"
       event-target-branch:
         description: "Branch in the target repository to send the event to"
         required: false
@@ -40,7 +40,7 @@ env:
   TAG: ${{ inputs.tag }}
   NODE_VERSION: "18"
   FULL_BASE_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ inputs.hashicorp-consul-tag }}-patched
-  EVENT_TARGET_REPO: "qubership-consul"
+  EVENT_TARGET_REPO: ${{ inputs.event-target-repo }}
   CONSUL_PATCHED_TAG: ${{ inputs.tag }}-patched
 
 jobs:
