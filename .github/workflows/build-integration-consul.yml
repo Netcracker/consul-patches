@@ -252,11 +252,11 @@ jobs:
             {
                "base_image": "${{ env.FULL_BASE_IMAGE_NAME}}",
                "tag": "${{ env.TAG }}",
-               "patchedTag": "${{ env.CONSUL_PATCHED_TAG }}",
+               "patched_tag": "${{ env.CONSUL_PATCHED_TAG }}",
                "repo": "${{ github.repository }}",
                "owner": "${{ env.REPOSITORY_OWNER_LC }}",
                "target_branch": "${{ inputs.event-target-branch || github.ref_name }}",
-               "forceCreate": "${{ inputs.forceCreate }}",
+               "force_create": "${{ inputs.forceCreate }}",
             }
           owner: "${{ env.REPOSITORY_OWNER_LC }}"
           repo: "${{ env.EVENT_TARGET_REPO }}"
