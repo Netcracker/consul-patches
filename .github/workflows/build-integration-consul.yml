@@ -50,13 +50,13 @@ jobs:
 
     steps:
       - name: Checkout hashicorp/consul source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: hashicorp/consul
           ref: ${{ env.HASHICORP_CONSUL_TAG }}
 
       - name: Checkout consul-patches
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: consul-patches
 
