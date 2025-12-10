@@ -256,7 +256,7 @@ jobs:
                "repo": "${{ github.repository }}",
                "owner": "${{ env.REPOSITORY_OWNER_LC }}",
                "target_branch": "${{ inputs.event-target-branch || github.ref_name }}",
-               "force_create": "${{ inputs.forceCreate }}",
+               "force_create": "${{ inputs.forceCreate }}"
             }
           owner: "${{ env.REPOSITORY_OWNER_LC }}"
           repo: "${{ env.EVENT_TARGET_REPO }}"
