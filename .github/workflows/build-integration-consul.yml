@@ -12,16 +12,23 @@ on:
         description: "Tag for release and Docker images (e.g. v1.21.3)"
         required: true
         default: "v1.21.3-patched"
+      event-target-repo:
+        description: "Repository to send the custom event to"
+        required: false
+        default: "qubership-rabbitmq"
+      event-target-branch:
+        description: "Branch in the target repository to send the event to"
+        required: false
+        default: "main"
+      forceCreate:
+        type: boolean
+        description: "Override tag name (default: true)"
+        default: true
       debug:
         description: "Enable debug output"
         type: boolean
         required: false
         default: false
-      # build_ubi:
-      #   description: "Also build UBI variant (target=ubi)"
-      #   type: boolean
-      #   required: false
-      #   default: false
 
 permissions:
   contents: write # create GitHub Release & upload assets
@@ -42,7 +49,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout hashicorp/consul source
         uses: actions/checkout@v5
         with:
@@ -232,7 +238,6 @@ jobs:
           docker rm -f consul-test
 
       - name: Print Consul container logs
-        if: ${{ inputs.debug == 'true' }} || failure()
         run: |
           echo "=== Consul container logs ==="
           docker logs consul-test || true
@@ -249,7 +254,9 @@ jobs:
                "tag": "${{ env.TAG }}",
                "patchedTag": "${{ env.CONSUL_PATCHED_TAG }}",
                "repo": "${{ github.repository }}",
-               "owner": "${{ github.repository_owner }}"
+               "owner": "${{ env.REPOSITORY_OWNER_LC }}",
+               "target_branch": "${{ inputs.event-target-branch || github.ref_name }}",
+               "forceCreate": "${{ inputs.forceCreate }}",
             }
           owner: "${{ env.REPOSITORY_OWNER_LC }}"
           repo: "${{ env.EVENT_TARGET_REPO }}"
