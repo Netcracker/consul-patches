@@ -239,10 +239,14 @@ jobs:
 
       - name: Print Consul container logs
         run: |
+          echo "::group::Logs"
           echo "=== Consul container logs ==="
           docker logs consul-test || true
+          echo "::endgroup::"
+          echo "::group::Filesystem"
           echo "=== Container filesystem ==="
           docker exec consul-test ls -l /bin || true
+          echo "::endgroup::"
 
       - name: Trigger custom event
         uses: netcracker/qubership-workflow-hub/actions/custom-event@v2.0.1
