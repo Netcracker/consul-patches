@@ -1,5 +1,5 @@
 name: Build Integration Consul
-run-name: "Consul ${{ inputs. hashicorp-consul-tag }} -> Release ${{ inputs.tag }}  by @${{ github.actor }}"
+run-name: "Consul ${{ inputs.hashicorp-consul-tag || 'v1.21.3' }} -> Release ${{ inputs.tag || 'v1.21.3-patched' }}  by @${{ github.actor }}"
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         required: true
         default: "v1.21.3"
       tag:
-        description: "Tag for release and Docker images (e.g. v1.21.3)"
+        description: "Tag for release and Docker images (e.g. v1.21.3-patched)"
         required: true
         default: "v1.21.3-patched"
       event-target-repo:
@@ -29,19 +29,22 @@ on:
         type: boolean
         required: false
         default: false
+  schedule:
+    - cron: '0 3 * * *' # Weekly on Mondays at 03:00 UTC
 
 permissions:
   contents: write # create GitHub Release & upload assets
   packages: write # push images to GHCR
 
 env:
-  BIN_NAME: consul-${{ inputs.tag }}
-  HASHICORP_CONSUL_TAG: ${{ inputs.hashicorp-consul-tag }}
-  TAG: ${{ inputs.tag }}
+  BIN_NAME: consul-${{ inputs.tag || 'v1.21.3-patched' }}
+  HASHICORP_CONSUL_TAG: ${{ inputs.hashicorp-consul-tag || 'v1.21.3' }}
+  TAG: ${{ inputs.tag || 'v1.21.3-patched' }}
   NODE_VERSION: "18"
-  FULL_BASE_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ inputs.hashicorp-consul-tag }}-patched
-  EVENT_TARGET_REPO: ${{ inputs.event-target-repo }}
-  CONSUL_PATCHED_TAG: ${{ inputs.tag }}-patched
+  FULL_BASE_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/qubership-consul-base:${{ inputs.hashicorp-consul-tag || 'v1.21.3' }}-patched
+  EVENT_TARGET_REPO: ${{ inputs.event-target-repo || 'qubership-consul' }}
+  EVENT_TARGET_BRANCH: ${{ inputs.event-target-branch || 'main' }}
+  FORCE_CREATE: ${{ inputs.forceCreate || 'true' }}
 
 jobs:
   build:
@@ -256,11 +259,10 @@ jobs:
             {
                "base_image": "${{ env.FULL_BASE_IMAGE_NAME}}",
                "tag": "${{ env.TAG }}",
-               "patched_tag": "${{ env.CONSUL_PATCHED_TAG }}",
                "repo": "${{ github.repository }}",
                "owner": "${{ env.REPOSITORY_OWNER_LC }}",
-               "target_branch": "${{ inputs.event-target-branch || github.ref_name }}",
-               "force_create": "${{ inputs.forceCreate }}"
+               "target_branch": "${{ env.EVENT_TARGET_BRANCH }}",
+               "force_create": "${{ env.FORCE_CREATE }}"
             }
           owner: "${{ env.REPOSITORY_OWNER_LC }}"
           repo: "${{ env.EVENT_TARGET_REPO }}"
