@@ -30,7 +30,7 @@ on:
         required: false
         default: false
   schedule:
-    - cron: '0 3 * * *' # Weekly on Mondays at 03:00 UTC
+    - cron: '0 0 1 * *' # Weekly on Mondays at 03:00 UTC
 
 permissions:
   contents: write # create GitHub Release & upload assets
